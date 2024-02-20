@@ -1,4 +1,4 @@
-import util as ut 
+import utils as ut 
 import xarray as xr
 import numpy as np
 import datetime as dt
@@ -7,13 +7,15 @@ import csv
 from numpy.random import default_rng,randint
 rng = default_rng()
 
-def create_event(ds,mem_typ,peak_date):
+def create_event(ds,mem_typ,peak_date,restrict=False):
     """returns the 5-day running mean maximum temperature of each member in ds, within 5 days of parent peak"""
     orig_peak = peak_date.dayofyear.values
     dates = ds.start_date.values
     lead_times = [int(ut.to_dt(dat).timetuple().tm_yday-orig_peak) for dat in dates]
     ds["start_date"] = lead_times
     ds=ds.rename({"start_date":"lead_time"})
+    if restrict != False:
+        ds = ds.sel(lead_time=slice(-15,-10))
     return ut.to_cel(ds.TREFHTMX_x5d).sel(member=range(1,int(mem_typ)+1)).sel(time=slice(peak_date-dt.timedelta(days=5),peak_date+dt.timedelta(days=5))).max("time")
 
 def rank_tops(ds, top=50,dims=('member', 'lead_time')):
@@ -151,38 +153,38 @@ def score_algo(ds,len_loop,batch_size,len_top,len_alloc,bootstrap,alloc_type="Ra
     score_list = [np.transpose(scores)[i] for i in range(len(np.transpose(scores)))]
     return score_list
 
-def score_cases_diff_config(ds_boost,n_top,n_alloc,n_batch,len_loop,bootstrap):
+def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,restrict=False):
     """takes ds_boost containging different cases, and runs the scoring algo for a range of different configurations. n_top, n_alloc, and len_top are lists of the numbers wanted to loop over.Saves the output in csv files."""
-    for case in ds_boost:
-        print(case)
-        ds = ds_boost[case] 
-        # varying len_top (length of ground truth list - affects score only)
-        for len_top in n_top:
-            print(f"Top ground truth length {len_top}")
-            # varying len_alloc (how many top performing events will be used for allocation in next round
-            for len_alloc in n_alloc:
-                print(f"Allocation length {len_alloc}")
-                # varying batch size (for each top performing event, how many new events to sample
-                for batch_size in n_batch:
-                    print(f"Batch size {batch_size}")
-                    #allocating in three different ways
-                    alloc_types = ["Random","Basic","Weighted"]
-                    #writing output to csv
-                    with open(f"../outputs/csvs/score_{case}_batch{batch_size}_alloc{len_alloc}_top{len_top}.csv","w") as f:
-                        wrt = csv.writer(f)
-                        header = [f"Round {x}" for x in range(1,len_loop+1)]
-                        header.insert(0, "Allocation_type") 
-                        wrt.writerow(header)
-                        for i,alloc in enumerate(alloc_types):
-                            score = score_algo(ds,len_loop,batch_size,len_top,len_alloc,bootstrap,alloc_type=alloc)
-                            score.insert(0,alloc)
-                            wrt.writerow(score)
-                        #also write total number of events to csv
-                        total_size = np.zeros(len_loop)
-                        total_size[0] = int(len(ds.lead_time)*batch_size)
-                        for i in range(1,len_loop):
-                            total_size[i] = int(total_size[i-1] + len_alloc*batch_size)
-                        total_size = list(total_size)
-                        total_size.insert(0,"Total_size")
-                        wrt.writerow(total_size)
+    # varying len_top (length of ground truth list - affects score only)
+    for len_top in n_top:
+        print(f"Top ground truth length {len_top}")
+        # varying len_alloc (how many top performing events will be used for allocation in next round
+        for len_alloc in n_alloc:
+            print(f"Allocation length {len_alloc}")
+            # varying batch size (for each top performing event, how many new events to sample
+            for batch_size in n_batch:
+                print(f"Batch size {batch_size}")
+                #allocating in three different ways
+                alloc_types = ["Random","Basic","Weighted"]
+                #writing output to csv
+                save_file = f"../outputs/csvs/score_{case}_batch{batch_size}_alloc{len_alloc}_top{len_top}.csv"
+                if restrict == True:
+                    save_file = f"../outputs/csvs/score_{case}_batch{batch_size}_alloc{len_alloc}_top{len_top}_restricted.csv"
+                with open(save_file,"w") as f:
+                    wrt = csv.writer(f)
+                    header = [f"Round {x}" for x in range(1,len_loop+1)]
+                    header.insert(0, "Allocation_type") 
+                    wrt.writerow(header)
+                    for i,alloc in enumerate(alloc_types):
+                        score = score_algo(ds,len_loop,batch_size,len_top,len_alloc,bootstrap,alloc_type=alloc)
+                        score.insert(0,alloc)
+                        wrt.writerow(score)
+                    #also write total number of events to csv
+                    total_size = np.zeros(len_loop)
+                    total_size[0] = int(len(ds.lead_time)*batch_size)
+                    for i in range(1,len_loop):
+                        total_size[i] = int(total_size[i-1] + len_alloc*batch_size)
+                    total_size = list(total_size)
+                    total_size.insert(0,"Total_size")
+                    wrt.writerow(total_size)
     return None

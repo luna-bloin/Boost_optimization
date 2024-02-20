@@ -8,6 +8,15 @@ import xarray as xr
 import csv
 from tqdm import tqdm
 
+# Configurations
+restrict = True # restrict lead time to only -15 --> -10 days
+together = False # should algorithm treat all cases together or separately
+n_top = [1,2,4,6,8,10,15,20,25,30]
+n_alloc = [1,2,4,6,8,10,15,20,25,30]
+n_batch = [1,2,4,6,8,10,15,20,25,30]
+len_loop = 4
+bootstrap = 100
+
 # Paths
 boost = "/net/meso/climphys/cesm212/boosting/archive/"
 in_path = '/net/xenon/climphys/lbloin/optim_boost/'
@@ -56,19 +65,22 @@ for mem_typ in ["100","300"]:
         peak_date = ((origs_all[mem_typ][case].groupby("time.dayofyear")-mn).groupby("time.dayofyear")/std).idxmax()
         # open boost, create event (5-day rolling mean maximum temperature within 5 days of orig peak
         ds = xr.open_dataset(in_path+f"TREFHTMX_Z500_x5d_PNW_boosted_{case}.nc")
-        ds_boost[case] = sc.create_event(ds,mem_typ,peak_date)
+        ds_boost[case] = sc.create_event(ds,mem_typ,peak_date,restrict=restrict)
     ds_boost_all[mem_typ] = ds_boost
         
 # ==================================================
 print("scoring")
 # === Scoring algorithm ===
-n_top = [1,2,4,6,8,10,15,20,25,30]
-n_alloc = [1,2,4,6,8,10,15,20,25,30]
-n_batch = [1,2,4,6,8,10,15,20,25,30]
-len_loop = 4
-bootstrap = 100
+
 for mem_typ in ["100","300"]:
-    sc.score_cases_diff_config(ds_boost_all[mem_typ],n_top,n_alloc,n_batch,len_loop,bootstrap)
+    if together == False:
+        for case in ds_boost_all[mem_typ]:
+            print(case)
+            ds = ds_boost_all[mem_typ][case] 
+            sc.score_diff_config(ds, n_top, n_alloc, n_batch, len_loop, bootstrap, restrict=restrict)
+    else:
+        ds = xr.concat(list(ds_boost_all[mem_typ].values()), dim="case")
+        sc.score_diff_config(ds, n_top, n_alloc, n_batch, len_loop, bootstrap, restrict=restrict)
                             
                         
         
