@@ -7,14 +7,18 @@ import csv
 from numpy.random import default_rng,randint
 rng = default_rng()
 
-def create_event(ds,mem_typ,peak_date):
-    """returns the 5-day running mean maximum temperature of each member in ds, within 5 days of parent peak"""
+def create_event(ds,mem_typ,peak_date,anomaly=False):
+    """returns the 5-day running mean maximum temperature of each member in ds, within 5 days of parent peak. If anomaly is not bool, pass it as the dataset of mean climatology, to create anomaly dataset"""
     orig_peak = peak_date.dayofyear.values
     dates = ds.start_date.values
     lead_times = [int(ut.to_dt(dat).timetuple().tm_yday-orig_peak) for dat in dates]
     ds["start_date"] = lead_times
-    ds=ds.rename({"start_date":"lead_time"})
-    return ut.to_cel(ds.TREFHTMX_x5d).sel(member=range(1,int(mem_typ)+1)).sel(time=slice(peak_date-dt.timedelta(days=5),peak_date+dt.timedelta(days=5))).max("time")
+    ds=ut.to_cel(ds).rename({"start_date":"lead_time"})
+    if type(anomaly) != bool:
+        ds = ds.groupby("time.dayofyear")- anomaly
+    max_in_window =  ds.TREFHTMX_x5d.sel(member = range(1,int(mem_typ) + 1)).sel(time = slice(peak_date - dt.timedelta(days = 5), peak_date + dt.timedelta(days = 5))).max("time")
+    return max_in_window
+        
 
 def rank_tops(ds, top=50,dims=('member', 'lead_time'),ret_full = False):
     """takes a dataset ds and finds the highest value events over dimensions dim, of length top. Returns a dataset with only these events"""
@@ -145,7 +149,7 @@ def score_algo(ds,len_loop,batch_size,len_top,len_alloc,bootstrap,top_thresh,all
     score_list = [np.transpose(scores)[i] for i in range(len(np.transpose(scores)))]
     return score_list
 
-def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,together=False,restrict=False):
+def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,area,together=False,restrict=False,anomaly=False):
     """takes ds_boost containging different cases, and runs the scoring algo for a range of different configurations. n_top, n_alloc, and len_top are lists of the numbers wanted to loop over.Saves the output in csv files."""
     # varying len_top (length of ground truth list - affects score only)
     for len_top in n_top:
@@ -160,8 +164,10 @@ def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,together=False
             ds_calc = ds
             save_adds += f"_{together}"
         if restrict == True:
-            save_adds += f"_restricted"
+            save_adds += "_restricted"
             ds_calc = ds_calc.sel(lead_time=slice(-15,10))
+        if anomaly == True:
+            save_adds += "_anomaly"
         # varying len_alloc (how many top performing events will be used for allocation in next round
         for len_alloc in n_alloc:
             print(f"Allocation length {len_alloc}")
@@ -171,7 +177,7 @@ def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,together=False
                 #allocating in three different ways
                 alloc_types = ["Random","Basic","Weighted"]
                 #writing output to csv
-                save_file = "../outputs/csvs/score"+ save_adds + f"_batch{batch_size}_alloc{len_alloc}_top{len_top}.csv"
+                save_file = "../outputs/csvs/score"+ save_adds + f"_batch{batch_size}_alloc{len_alloc}_top{len_top}_{area}.csv"
                 with open(save_file,"w") as f:
                     wrt = csv.writer(f)
                     header = [f"Round {x}" for x in range(1,len_loop+1)]

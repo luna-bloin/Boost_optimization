@@ -10,9 +10,26 @@ output_path = '/net/xenon/climphys/lbloin/optim_boost/'
 # boost data
 boost = "/net/meso/climphys/cesm212/boosting/archive/"
 
-for area in ["PNW","MID","PAR","global"]:
+# configurations
+try: 
+    areas = [sys.argv[1]]  # string of area to preprocess
+except IndexError:
+    areas = ["PNW","CH","MID","PAR","global"]
+print(areas)
+
+# preprocess
+for area in areas:
     print(area)
-    pc.preproc_clim(in_path, output_path,area)
-    pc.preproc_unpert(in_path, output_path,area)
-    pc.preproc_boost(boost, output_path,area)
+    # deciding if area should be selected through regionmask or just cut out box
+    if area == "CH":
+        read_type = "regionmask"
+    else:
+        read_type = "box"
+    print(read_type)
+    print("preprocessing climatology")
+    pc.preproc_clim(in_path, output_path,area,read_type)
+    print("preprocessing unperturbed runs")
+    pc.preproc_unpert(in_path, output_path,area,read_type)
+    print("preprocessing boosted runs")
+    pc.preproc_boost(boost, output_path,area,read_type)
 

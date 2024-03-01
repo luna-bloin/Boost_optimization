@@ -16,6 +16,13 @@ def read_area(area):
     areas= [ int(rows[1][0]), int(rows[1][1]),int(rows[1][2]), int(rows[1][3]) ]
     return areas
 
+def read_regionmask(area):
+    pth = glob.glob(f"../inputs/areas/{area}.csv")
+    with open(pth[0],"r") as f:
+        rd = csv.reader(f)
+        for row in rd:
+            return int(row[0])
+            
 def to_000(mem,length=3):
     while len(str(mem)) < length:
         mem = f"0{mem}"

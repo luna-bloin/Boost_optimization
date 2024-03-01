@@ -5,11 +5,11 @@ import glob
 import csv
 import datetime as dt
 from tqdm import tqdm
+import regionmask
 
-import utils as ut
 from utils import read_area, to_000
 
-def preprocess(ds,area="global"):
+def preprocess(ds,read_type,area="global"):
     """returns a ds with 5xd running means over variables TREFHTMX and Z500, either cropped and as a linear mean over an area, or as global map """
     ds_out = xr.Dataset()
     if area == "global":
@@ -17,17 +17,23 @@ def preprocess(ds,area="global"):
             ds_out[f"{var}_x5d"] = ds[var].rolling(time=5, center=True).mean()
         return ds_out
     else:
-        [min_lat,max_lat,min_lon,max_lon] = read_area(area)
+        if read_type == "box":
+            [min_lat,max_lat,min_lon,max_lon] = read_area(area)
+            ds = ds.sel(lat=slice(min_lat,max_lat),lon=slice(min_lon,max_lon))
+        if read_type == "regionmask":
+            country = ut.read_regionmask(area)
+            mask = regionmask.defined_regions.natural_earth_v5_0_0.countries_110.mask(ds.lon,ds.lat)
+            ds = ds.where(mask == country,drop=True)
         for var in ["TREFHTMX","Z500"]:
             if var in ds.data_vars:
-                da = ds[var].sel(lat=slice(min_lat,max_lat),lon=slice(min_lon,max_lon))
+                da = ds[var]
                 wgt = np.cos(np.deg2rad(ds.lat))
                 ds_out[f"{var}_x5d"] = (da.weighted(wgt).mean(("lat","lon")).rolling(time=5, center=True).mean())
             else:
                 print(f"Error, {var} not in data vars")
         return ds_out
 
-def preproc_clim(in_path,output_path,area):
+def preproc_clim(in_path,output_path,area,read_type):
     """preprocesses all macro ensemble members to form a climatology between 1981 and 2010 for a specified area. TREFHT and Z500. Saves the output in location specified by output_path"""
     #reading in files
     f_clim = []
@@ -39,7 +45,7 @@ def preproc_clim(in_path,output_path,area):
     with dask.config.set(**{'array.slicing.split_large_chunks': True}): # To avoid creating large chunks   
         #define preproc for that area
         def prep(ds):
-            return preprocess(ds,area=area)
+            return preprocess(ds,read_type,area=area)
         clim = xr.open_mfdataset(f_clim, preprocess = prep, concat_dim="member", combine="nested")
         print("processed")
         mn = clim.groupby("time.dayofyear").mean(("member","time"))
@@ -48,12 +54,12 @@ def preproc_clim(in_path,output_path,area):
         print("saved")
     return None
 
-def preproc_unpert(in_path, output_path,area):
+def preproc_unpert(in_path, output_path,area,read_type):
     """preprocesses all micro ensemble members (2005-2035) for a specified area. TREFHT and Z500. Saves the output in location specified by output_path"""
     dss = []
     #define preproc for that area
     def prep(ds):
-        return preprocess(ds,area=area)
+        return preprocess(ds,read_type,area=area)
     for mem in tqdm(range(1,31)):
         file = sorted(glob.glob(in_path+f"b.e212.B*cmip6.f09_g17.001.2005.ens{to_000(str(mem))}/archive/atm/hist/b.e212.B*cmip6.f09_g17.001.2005.ens{to_000(str(mem))}.cam.h1.*-01-01-00000.nc"))
         with xr.open_mfdataset(file,preprocess = prep) as ds:
@@ -88,14 +94,21 @@ areas = {
         "13-2030": [dt.date(2030, 8, 8), dt.date(2030, 8, 19)],
         "19-2028": [dt.date(2028, 7, 19), dt.date(2028, 7, 30)],
         "19-2016": [dt.date(2016, 7, 1), dt.date(2016, 7, 12)]
+    },
+    "CH":{
+        "12-2028": [dt.date(2028,7,16), dt.date(2028,7,26)],
+        "03-2031": [dt.date(2031,7,10),dt.date(2031,7,10)],
+        "13-2030": [dt.date(2030,7,27),dt.date(2030,8,6)],
+        "22-2015": [dt.date(2015,7,7), dt.date(2015,7,17)],
+        "27-2028": [dt.date(2028,7,12),dt.date(2028,7,22)]
     }
 }
 
-def preproc_boost(boost, output_path,area):
+def preproc_boost(boost, output_path,area,read_type):
     """preprocesses all boosted cases for a specified area. TREFHT and Z500. Saves the output in location specified by output_path"""
     #define preproc for that area
     def prep(ds):
-        return ut.preprocess(ds,area=area)
+        return preprocess(ds,read_type,area=area)
     for case in areas[area]:
         print(case)
         mem = case[0:-5]
