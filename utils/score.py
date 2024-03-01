@@ -7,32 +7,30 @@ import csv
 from numpy.random import default_rng,randint
 rng = default_rng()
 
-def create_event(ds,mem_typ,peak_date,restrict=False):
+def create_event(ds,mem_typ,peak_date):
     """returns the 5-day running mean maximum temperature of each member in ds, within 5 days of parent peak"""
     orig_peak = peak_date.dayofyear.values
     dates = ds.start_date.values
     lead_times = [int(ut.to_dt(dat).timetuple().tm_yday-orig_peak) for dat in dates]
     ds["start_date"] = lead_times
     ds=ds.rename({"start_date":"lead_time"})
-    if restrict != False:
-        ds = ds.sel(lead_time=slice(-15,-10))
     return ut.to_cel(ds.TREFHTMX_x5d).sel(member=range(1,int(mem_typ)+1)).sel(time=slice(peak_date-dt.timedelta(days=5),peak_date+dt.timedelta(days=5))).max("time")
 
-def rank_tops(ds, top=50,dims=('member', 'lead_time')):
+def rank_tops(ds, top=50,dims=('member', 'lead_time'),ret_full = False):
     """takes a dataset ds and finds the highest value events over dimensions dim, of length top. Returns a dataset with only these events"""
     ds_stack=ds.stack(event=dims)
     top_runs = ds_stack.sortby(ds_stack,ascending=False).dropna(dim="event").isel(event=slice(0,top))
-    return top_runs
+    if ret_full == True:
+        return top_runs
+    else:
+        return top_runs.min().values
 
 def lead_time_sample(ds,lead_dict,len_top,mem_sample=False):
     """samples events from a dataset ds. Batch size is determined for each lead time in the dict lead_dict. mem_sample is optionally included if you want another set to draw from than just the members of the ds. Returns the highest members (length =len_top), and a dict of events that weren't chosen"""
     maxes = [] #list of sampled datasets for each lead time
     non_chosen = {} #dict of non-sampled members (per lead time)
-    # if type(mem_sample) != bool:
-    #     print(mem_sample.keys())
     for lead_time in lead_dict:
         #choose sample to draw from
-        # print(lead_time)
         if mem_sample == False:
             sample = ds.member.values
         else:
@@ -44,20 +42,19 @@ def lead_time_sample(ds,lead_dict,len_top,mem_sample=False):
         #draw batch from sample of size batch_size
         batch = rng.choice(sample, size=batch_size,replace=False)
         # only keep maximum values over time
-        maxes_batch = ds.sel(lead_time=int(lead_time),member=batch)
+        maxes_batch = ds.sel(lead_time=eval(lead_time),member=batch)
         maxes.append(maxes_batch)   
         # non-sampled members
         non_chosen[lead_time] = list(set(sample) - set(batch))
     maxes_tot = xr.concat(maxes,dim="lead_time")
     # find top runs within all the sampled members (across lead times -> batch_size*len(lead_time))
-    return rank_tops(maxes_tot,top=len_top),non_chosen
+    return rank_tops(maxes_tot,top=len_top,dims=ds.dims,ret_full = True),non_chosen
 
-def score_ds(maxes_tot,top_list):
+def score_ds(maxes_tot,top_thresh):
     """scores the sampled events by comparing them to a ground truth. Returns #events found in ground truth/length of sample"""
     score = 0
     for mx in maxes_tot:
-        mx_list = f'{mx.lead_time.values}:{mx.member.values}'
-        if mx_list in top_list:
+        if mx >= top_thresh:
             score += 1
     score_avg = score/len(maxes_tot)
     return score_avg
@@ -107,7 +104,7 @@ def find_random_alloc(size, lead_times):
             occ_per_lead_time[f"{ld}"] = 0
     return occ_per_lead_time
 
-def sample_score_alloc(ds,len_loop,batch_size,len_top,top_list,len_alloc,alloc_type="Random"):
+def sample_score_alloc(ds,len_loop,batch_size,len_top,top_thresh,len_alloc,alloc_type="Random"):
     """takes a dataset ds and performs sampling, scoring and allocation for len_loop rounds"""
     scores = np.zeros(len_loop)
     # loop over number of rounds
@@ -126,7 +123,7 @@ def sample_score_alloc(ds,len_loop,batch_size,len_top,top_list,len_alloc,alloc_t
             combed = xr.combine_nested([to_analyze,maxes_tot[0]],concat_dim="event")
             to_analyze = combed.sortby(combed,ascending=False)
         #scoring
-        scores[i] = score_ds(to_analyze[0:len_top],top_list)
+        scores[i] = score_ds(to_analyze[0:len_top],top_thresh)
         #find allocation for next round
         if alloc_type == "Basic":
             lead_dict = find_alloc(to_analyze[0:len_alloc],batch_size)
@@ -139,25 +136,32 @@ def sample_score_alloc(ds,len_loop,batch_size,len_top,top_list,len_alloc,alloc_t
             break
     return scores
 
-def score_algo(ds,len_loop,batch_size,len_top,len_alloc,bootstrap,alloc_type="Random"):
+def score_algo(ds,len_loop,batch_size,len_top,len_alloc,bootstrap,top_thresh,alloc_type="Random"):
     """Perform scoring algo for dataset ds, scoring according to its ground truth, and performing a bootstrap for the result"""
-    #find ground truth
-    top_runs = rank_tops(ds,top=len_top) # top len_top runs in boosted ensemble
-    top_list = [] #same, in form of a list
-    for top in top_runs:
-        top_list.append(f'{top.lead_time.values}:{top.member.values}')
     # run a sampling, scoring and allocating loop, nb of times = bootstrap
     scores = [np.zeros(len_loop) for i in range(bootstrap)]
     for bt in tqdm(range(bootstrap)):
-        scores[bt] =  sample_score_alloc(ds,len_loop,batch_size,len_top,top_list,len_alloc,alloc_type=alloc_type)
+        scores[bt] =  sample_score_alloc(ds,len_loop,batch_size,len_top,top_thresh,len_alloc,alloc_type=alloc_type)
     score_list = [np.transpose(scores)[i] for i in range(len(np.transpose(scores)))]
     return score_list
 
-def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,restrict=False):
+def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,together=False,restrict=False):
     """takes ds_boost containging different cases, and runs the scoring algo for a range of different configurations. n_top, n_alloc, and len_top are lists of the numbers wanted to loop over.Saves the output in csv files."""
     # varying len_top (length of ground truth list - affects score only)
     for len_top in n_top:
         print(f"Top ground truth length {len_top}")
+        #find ground truth
+        top_thresh = rank_tops(ds,top=len_top,dims=ds.dims,ret_full = False) # top len_top runs in boosted ensemble
+        save_adds = "" 
+        if together==True:
+            save_adds += f"_mem_typ{len(ds.member.values)}"
+            ds_calc = ds.stack(event=("lead_time","case")).rename({"lead_time":"lt","event":"lead_time"})
+        else:
+            ds_calc = ds
+            save_adds += f"_{together}"
+        if restrict == True:
+            save_adds += f"_restricted"
+            ds_calc = ds_calc.sel(lead_time=slice(-15,10))
         # varying len_alloc (how many top performing events will be used for allocation in next round
         for len_alloc in n_alloc:
             print(f"Allocation length {len_alloc}")
@@ -167,21 +171,19 @@ def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,restrict=False
                 #allocating in three different ways
                 alloc_types = ["Random","Basic","Weighted"]
                 #writing output to csv
-                save_file = f"../outputs/csvs/score_{case}_batch{batch_size}_alloc{len_alloc}_top{len_top}.csv"
-                if restrict == True:
-                    save_file = f"../outputs/csvs/score_{case}_batch{batch_size}_alloc{len_alloc}_top{len_top}_restricted.csv"
+                save_file = "../outputs/csvs/score"+ save_adds + f"_batch{batch_size}_alloc{len_alloc}_top{len_top}.csv"
                 with open(save_file,"w") as f:
                     wrt = csv.writer(f)
                     header = [f"Round {x}" for x in range(1,len_loop+1)]
                     header.insert(0, "Allocation_type") 
                     wrt.writerow(header)
                     for i,alloc in enumerate(alloc_types):
-                        score = score_algo(ds,len_loop,batch_size,len_top,len_alloc,bootstrap,alloc_type=alloc)
+                        score = score_algo(ds_calc,len_loop,batch_size,len_top,len_alloc,bootstrap,top_thresh,alloc_type=alloc)
                         score.insert(0,alloc)
                         wrt.writerow(score)
                     #also write total number of events to csv
                     total_size = np.zeros(len_loop)
-                    total_size[0] = int(len(ds.lead_time)*batch_size)
+                    total_size[0] = int(len(ds_calc.lead_time)*batch_size)
                     for i in range(1,len_loop):
                         total_size[i] = int(total_size[i-1] + len_alloc*batch_size)
                     total_size = list(total_size)
