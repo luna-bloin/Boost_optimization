@@ -118,9 +118,9 @@ def preproc_boost(boost, output_path,area,read_type):
         
         #file naming conventions
         if int(case[3:]) < 2015:
-            fi_len = [78,81]#[77,80] because it changed to climphys1
+            fi_len = [77,80] 
         else:
-            fi_len = [80,83] #[79,82] because it changed to climphys1
+            fi_len = [79,82] 
 
         while date <= end_date:
             files = sorted(glob.glob(boost+f"B*cmip6.000*{mem}.{date}.ens*/atm/hist/B*cmip6.*.*.ens*.cam.h1.*-00000.nc"))

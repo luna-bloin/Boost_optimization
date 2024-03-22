@@ -4,11 +4,11 @@ sys.path.append("../utils")
 import preproc as pc
 
 #source location
-in_path = "/net/meso/climphys1/cesm212/" #if it ever changes back to climphys and not climphys1, you have to also change preproc.py
+in_path = "/net/meso/climphys/cesm212/" #if it ever changes back to climphys and not climphys1, you have to also change preproc.py
 # processed data
 output_path = '/net/xenon/climphys/lbloin/optim_boost/'
 # boost data
-boost_path = "/net/meso/climphys1/cesm212/boosting/archive/"
+boost_path = "/net/meso/climphys/cesm212/boosting/archive/"
 
 # configurations
 try: 
