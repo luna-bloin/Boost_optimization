@@ -7,7 +7,7 @@ import datetime as dt
 from tqdm import tqdm
 import regionmask
 
-from utils import read_area, to_000
+from utils import read_area, to_000, read_regionmask
 
 def preprocess(ds,read_type,area="global"):
     """returns a ds with 5xd running means over variables TREFHTMX and Z500, either cropped and as a linear mean over an area, or as global map """
@@ -21,7 +21,7 @@ def preprocess(ds,read_type,area="global"):
             [min_lat,max_lat,min_lon,max_lon] = read_area(area)
             ds = ds.sel(lat=slice(min_lat,max_lat),lon=slice(min_lon,max_lon))
         if read_type == "regionmask":
-            country = ut.read_regionmask(area)
+            country = read_regionmask(area)
             mask = regionmask.defined_regions.natural_earth_v5_0_0.countries_110.mask(ds.lon,ds.lat)
             ds = ds.where(mask == country,drop=True)
         for var in ["TREFHTMX","Z500"]:
@@ -118,9 +118,9 @@ def preproc_boost(boost, output_path,area,read_type):
         
         #file naming conventions
         if int(case[3:]) < 2015:
-            fi_len = [77,80]
+            fi_len = [78,81]#[77,80] because it changed to climphys1
         else:
-            fi_len = [79,82]
+            fi_len = [80,83] #[79,82] because it changed to climphys1
 
         while date <= end_date:
             files = sorted(glob.glob(boost+f"B*cmip6.000*{mem}.{date}.ens*/atm/hist/B*cmip6.*.*.ens*.cam.h1.*-00000.nc"))

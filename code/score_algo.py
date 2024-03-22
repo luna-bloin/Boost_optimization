@@ -9,15 +9,22 @@ import csv
 from tqdm import tqdm
 
 # Configurations
-area = "PNW"
-restrict = False # lead time to only -15 --> -10 days 
-together = True # should algorithm treat all cases together or separately
+try: 
+    area = sys.argv[1] 
+    restrict = eval(sys.argv[2])
+    together = eval(sys.argv[3])
+    anomaly_ds = eval(sys.argv[4])
+except IndexError:
+    area = "PNW"
+    restrict = False # lead time to only -15 --> -10 days 
+    together = False # should algorithm treat all cases together or separately
+    anomaly_ds = False # should evens be absolute values or anomalies
+print(f"{area}, restrict = {restrict}, together = {together}, anomaly = {anomaly_ds}")
 n_top = [1,2,4,6,8,10,15,20,25,30]
 n_alloc = [1,2,4,6,8,10,15,20,25,30]
 n_batch = [1,2,4,6,8,10,15,20,25,30]
 len_loop = 4
 bootstrap = 100
-anomaly_ds = True
 
 # Paths
 boost = "/net/meso/climphys/cesm212/boosting/archive/"
@@ -77,6 +84,11 @@ for mem_typ in ["100","300"]:
 # ==================================================
 print("scoring")
 # === Scoring algorithm ===
+save_adds = area
+if anomaly_ds == True:
+    save_adds = f"{save_adds}_anomaly"
+
+print(save_adds)
 for mem_typ in ["100","300"]:
     if together == False:
         for case in ds_boost_all[mem_typ]:
@@ -88,22 +100,22 @@ for mem_typ in ["100","300"]:
                                  n_batch, 
                                  len_loop, 
                                  bootstrap, 
-                                 area,
+                                 save_adds,
                                  restrict = restrict,
-                                 together=case, 
-                                 anomaly=anomaly_ds)
+                                 together = case
+                                )
     else:
         ds = xr.concat(list(ds_boost_all[mem_typ].values()), dim="case")
+        ds["case"] = list(ds_boost_all[mem_typ].keys())
         sc.score_diff_config(ds, 
                              n_top, 
                              n_alloc, 
                              n_batch, 
                              len_loop, 
                              bootstrap, 
-                             area,
+                             save_adds,
                              restrict = restrict,
-                             together=together,
-                             anomaly=anomaly_ds)
-                            
+                             together = together
+                             )
                         
         

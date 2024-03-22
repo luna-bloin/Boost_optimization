@@ -1,6 +1,7 @@
 import glob
 import csv
 import datetime as dt
+import xarray as xr
 
 def read_area(area):
     """returns a list of min_lat,max_lat,min_lon,max_lon needed to crop the corresponding area"""
@@ -33,3 +34,8 @@ def to_cel(da):
 
 def to_dt(string):
     return dt.datetime(int(string[0:4]),int(string[5:7]),int(string[8:]))
+
+def concat_to_ds(list,dim,typ_name):
+    ds = xr.concat(list,dim=dim)
+    ds[dim] = typ_name
+    return ds

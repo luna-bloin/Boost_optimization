@@ -83,13 +83,23 @@ def find_alloc_weighted(maxes_tot,len_alloc,batch_size):
         # find the ratio of relative distande/total distance
         for i,rk in enumerate(rank_list):
             relative_dists[i] = ((rk - rank_list[-1])/total_dist)
-        # normalize weights so total new allocated rund correspond ~ to len_alloc*batch_size
-        weights = relative_dists*(len_alloc*batch_size)/sum(relative_dists)
+        # normalize weights so total new allocated round correspond ~ to len_alloc*batch_size
+        weights = [int(r*(len_alloc*batch_size)/sum(relative_dists)) for r in relative_dists]
+        # add 1 more sample to allocate for each weight until total new allocated round correspond exactly to len_alloc*batch_size
+        i = 0
+        while (len_alloc*batch_size) > sum(weights):
+            weights[i] += 1
+            if i < len(weights):
+                i + 1
+            else:
+                i = 0
+            i + 1
+        # allocate to dict of lead times
         for i, rk in enumerate(rank_list):
             if f"{rk.lead_time.values}" in occ_per_lead_time.keys():
-                occ_per_lead_time[f"{rk.lead_time.values}"] += int(weights[i])
+                occ_per_lead_time[f"{rk.lead_time.values}"] += weights[i]
             else:
-                occ_per_lead_time[f"{rk.lead_time.values}"] = int(weights[i])
+                occ_per_lead_time[f"{rk.lead_time.values}"] = weights[i]        
     else:
         occ_per_lead_time[f"{rank_list[0].lead_time.values}"] = batch_size
     return occ_per_lead_time
@@ -111,6 +121,7 @@ def find_random_alloc(size, lead_times):
 def sample_score_alloc(ds,len_loop,batch_size,len_top,top_thresh,len_alloc,alloc_type="Random"):
     """takes a dataset ds and performs sampling, scoring and allocation for len_loop rounds"""
     scores = np.zeros(len_loop)
+    lead_dicts = []
     # loop over number of rounds
     for i in range(len_loop):
         # first round: simple sampling
@@ -128,6 +139,8 @@ def sample_score_alloc(ds,len_loop,batch_size,len_top,top_thresh,len_alloc,alloc
             to_analyze = combed.sortby(combed,ascending=False)
         #scoring
         scores[i] = score_ds(to_analyze[0:len_top],top_thresh)
+        # what lead times were allocated
+        lead_dicts.append(lead_dict)
         #find allocation for next round
         if alloc_type == "Basic":
             lead_dict = find_alloc(to_analyze[0:len_alloc],batch_size)
@@ -138,61 +151,81 @@ def sample_score_alloc(ds,len_loop,batch_size,len_top,top_thresh,len_alloc,alloc
         else:
             print("input valid score type")
             break
-    return scores
+    return scores, lead_dicts
 
 def score_algo(ds,len_loop,batch_size,len_top,len_alloc,bootstrap,top_thresh,alloc_type="Random"):
     """Perform scoring algo for dataset ds, scoring according to its ground truth, and performing a bootstrap for the result"""
     # run a sampling, scoring and allocating loop, nb of times = bootstrap
-    scores = [np.zeros(len_loop) for i in range(bootstrap)]
+    #scores = [np.zeros(len_loop) for i in range(bootstrap)]
+    score_info = []
     for bt in tqdm(range(bootstrap)):
-        scores[bt] =  sample_score_alloc(ds,len_loop,batch_size,len_top,top_thresh,len_alloc,alloc_type=alloc_type)
-    score_list = [np.transpose(scores)[i] for i in range(len(np.transpose(scores)))]
-    return score_list
+        # find scores and chosen leads
+        score,lead_time_all_rounds =  sample_score_alloc(ds,len_loop,batch_size,len_top,top_thresh,len_alloc,alloc_type=alloc_type)
+        # information on which lead times were chosen
+        lead_times = [ld for ld in lead_time_all_rounds[0].keys()] #since round 1 spans all lead times, we get the lead time info from here
+        lead_data = np.zeros((len(lead_time_all_rounds), len(lead_times)))
+        for i,round in enumerate(lead_time_all_rounds):
+            for lead_time in round:
+                j = lead_times.index(lead_time)
+                lead_data[i,j] = round[lead_time]
+        # store all info in dataset
+        score_info.append(xr.Dataset(
+            {
+                "chosen_leads": (["round", "lead_time"], lead_data),
+                "score": (["round"], score),
+            },
+            coords={
+                "round": range(0,len(lead_time_all_rounds)),
+                "lead_time": lead_times,
+            },
+        ))
+    score_info = xr.concat(score_info,dim="bootstrap")
+    #score_list = [np.transpose(scores)[i] for i in range(len(np.transpose(scores)))]
+    return score_info
 
-def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,area,together=False,restrict=False,anomaly=False):
+def score_diff_config(ds,n_top,n_alloc,n_batch,len_loop,bootstrap,save_adds,together,restrict):
     """takes ds_boost containging different cases, and runs the scoring algo for a range of different configurations. n_top, n_alloc, and len_top are lists of the numbers wanted to loop over.Saves the output in csv files."""
     # varying len_top (length of ground truth list - affects score only)
+    score_info_top = []
+    # adding changes to name depending on configuration
+    if together==True:
+        save_adds += f"_mem_typ{len(ds.member.values)}"
+        ds_calc = ds.stack(event=("lead_time","case")).rename({"lead_time":"lt","event":"lead_time"})
+    else:
+        ds_calc = ds
+        save_adds += f"_{together}" #save case name
+    if restrict == True:
+        save_adds += "_restricted"
+        ds_calc = ds_calc.sel(lead_time=slice(-15,10))
     for len_top in n_top:
         print(f"Top ground truth length {len_top}")
         #find ground truth
         top_thresh = rank_tops(ds,top=len_top,dims=ds.dims,ret_full = False) # top len_top runs in boosted ensemble
-        save_adds = "" 
-        if together==True:
-            save_adds += f"_mem_typ{len(ds.member.values)}"
-            ds_calc = ds.stack(event=("lead_time","case")).rename({"lead_time":"lt","event":"lead_time"})
-        else:
-            ds_calc = ds
-            save_adds += f"_{together}"
-        if restrict == True:
-            save_adds += "_restricted"
-            ds_calc = ds_calc.sel(lead_time=slice(-15,10))
-        if anomaly == True:
-            save_adds += "_anomaly"
         # varying len_alloc (how many top performing events will be used for allocation in next round
+        score_info_len_alloc = []
         for len_alloc in n_alloc:
             print(f"Allocation length {len_alloc}")
             # varying batch size (for each top performing event, how many new events to sample
+            score_info_batch = []
             for batch_size in n_batch:
                 print(f"Batch size {batch_size}")
                 #allocating in three different ways
                 alloc_types = ["Random","Basic","Weighted"]
-                #writing output to csv
-                save_file = "../outputs/csvs/score"+ save_adds + f"_batch{batch_size}_alloc{len_alloc}_top{len_top}_{area}.csv"
-                with open(save_file,"w") as f:
-                    wrt = csv.writer(f)
-                    header = [f"Round {x}" for x in range(1,len_loop+1)]
-                    header.insert(0, "Allocation_type") 
-                    wrt.writerow(header)
-                    for i,alloc in enumerate(alloc_types):
-                        score = score_algo(ds_calc,len_loop,batch_size,len_top,len_alloc,bootstrap,top_thresh,alloc_type=alloc)
-                        score.insert(0,alloc)
-                        wrt.writerow(score)
-                    #also write total number of events to csv
-                    total_size = np.zeros(len_loop)
-                    total_size[0] = int(len(ds_calc.lead_time)*batch_size)
-                    for i in range(1,len_loop):
-                        total_size[i] = int(total_size[i-1] + len_alloc*batch_size)
-                    total_size = list(total_size)
-                    total_size.insert(0,"Total_size")
-                    wrt.writerow(total_size)
+                #calculating scores for all allocation types
+                scores = []
+                for i,alloc in enumerate(alloc_types):
+                    score_info = score_algo(ds_calc,
+                                       len_loop,
+                                       batch_size,
+                                       len_top,
+                                       len_alloc,
+                                       bootstrap,
+                                       top_thresh,
+                                       alloc_type=alloc)
+                    scores.append(score_info)
+                score_info_batch.append(ut.concat_to_ds(scores,"alloc_type",alloc_types))
+            score_info_len_alloc.append(ut.concat_to_ds(score_info_batch,"batch_size",n_batch))
+        score_info_top.append(ut.concat_to_ds(score_info_len_alloc,"allocation_size",n_alloc))
+    score_info = ut.concat_to_ds(score_info_top,"top_size",n_top)
+    score_info.to_netcdf(f"../outputs/score_info/score_info_{save_adds}.nc")
     return None
