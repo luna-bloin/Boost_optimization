@@ -14,16 +14,18 @@ try:
     restrict = eval(sys.argv[2])
     together = eval(sys.argv[3])
     anomaly_ds = eval(sys.argv[4])
+    peak_anom = eval(sys.argv[5])
 except IndexError:
     area = "PNW"
     restrict = False # lead time to only -15 --> -10 days 
-    together = False # should algorithm treat all cases together or separately
+    together = True # should algorithm treat all cases together or separately
     anomaly_ds = False # should evens be absolute values or anomalies
-print(f"{area}, restrict = {restrict}, together = {together}, anomaly = {anomaly_ds}")
+    peak_anom = False # should you calculate the peak date based on anomaly or absolute data
+print(f"{area}, restrict = {restrict}, together = {together}, anomaly = {anomaly_ds}, calc peak with anomaly = {peak_anom}")
 n_top = [1,2,4,6,8,10,15,20,25,30]
 n_alloc = [1,2,4,6,8,10,15,20,25,30]
 n_batch = [1,2,4,6,8,10,15,20,25,30]
-len_loop = 4
+len_loop = 2
 bootstrap = 100
 
 # Paths
@@ -41,8 +43,8 @@ plt.rcParams.update({
 print("Reading in necessary files")
 # Read in climatology data
 clim = ut.to_cel(xr.open_dataset(in_path + f"TREFHTMX_Z500_x5d_{area}_clim_full.nc").TREFHTMX_x5d)
-mn = ut.to_cel(xr.open_dataset(f"/net/xenon/climphys/lbloin/optim_boost/TREFHTMX_Z500_x5d_{area}_clim.nc").TREFHTMX_x5d)
-std = clim.groupby("time.dayofyear").std(("ens", "time"))
+mn = ut.to_cel(xr.open_dataset(in_path+f"TREFHTMX_Z500_x5d_{area}_clim.nc").TREFHTMX_x5d)
+std = clim.groupby("time.dayofyear").std(("member", "time"))
 
 # Reading in boosted run info
 ds_boost_info = {}
@@ -61,7 +63,7 @@ origs_all = {}
 for mem_typ in ["100","300"]:
     origs = {}
     for case in tqdm(ds_boost_info[mem_typ]):
-        orig = ut.to_cel(xr.open_dataset(in_path+f"TREFHTMX_Z500_x5d_{area}_2005-2035_ens{int(case[0:2])}.nc").groupby("time.season")["JJA"].sel(time=case[3:]).TREFHTMX_x5d)
+        orig = ut.to_cel(xr.open_dataset(in_path+f"TREFHTMX_Z500_x5d_{area}_2005-2035.nc").groupby("time.season")["JJA"].sel(member=int(case[0:2]),time=case[3:]).TREFHTMX_x5d)
         origs[case] = orig
     origs_all[mem_typ] = origs
 
@@ -71,9 +73,13 @@ for mem_typ in ["100","300"]:
     ds_boost = {}
     for case in tqdm(ds_boost_info[mem_typ]):
         # find day of peak in parent run
-        peak_date = ((origs_all[mem_typ][case].groupby("time.dayofyear")-mn).groupby("time.dayofyear")/std).idxmax()
+        if peak_anom == True:
+            peak_date = ((origs_all[mem_typ][case].groupby("time.dayofyear")-mn).groupby("time.dayofyear")/std).idxmax()
+        else:
+            peak_date = ((origs_all[mem_typ][case].groupby("time.dayofyear") - mn).groupby("time.dayofyear")+mn).idxmax()
         # open boost, create event (5-day rolling mean maximum temperature within 5 days of orig peak
         ds = xr.open_dataset(in_path+f"TREFHTMX_Z500_x5d_{area}_boosted_{case}.nc")
+        ds["start_date"] = [f"2{date}"for date in ds.start_date.values] #TODO: fix this bug for CH
         if anomaly_ds == False:
             anomaly = False
         elif anomaly_ds == True:
