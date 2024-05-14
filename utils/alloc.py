@@ -34,12 +34,13 @@ def lead_ID_sample(ds,lead_dict,mem_sample=False):
         batch = rng.choice(sample, size=batch_size,replace=False)
         # only keep maximum values over time
         maxes_batch = ds.sel(lead_ID=eval(lead_ID),member=batch)
+        print(maxes_batch.values)
         maxes.append(maxes_batch)   
         # non-sampled members
         non_chosen[lead_ID] = list(set(sample) - set(batch))
-    maxes_tot = xr.concat(maxes,dim="lead_ID")
+    maxes_tot = xr.concat(maxes,dim="lead_ID").stack(event=ds.dims).dropna(dim="event")
     # find top runs within all the sampled members (across lead times -> batch_size*len(lead_time))
-    return rank_tops(maxes_tot,dims=ds.dims,ret_full = True), non_chosen
+    return maxes_tot, non_chosen
 
 def score_max(maxes_tot):
     """TODO: write this"""
@@ -53,8 +54,9 @@ def score_sum(maxes_tot,top=10):
 def find_alloc_static(maxes_tot,len_alloc,batch_size):
     """allocates amount of new samples to draw for each lead time, by giving batch_size number of new samples for each event in that lead time that was in the top selection"""
     rank_list = maxes_tot[0:len_alloc] #top events
+    print(rank_list)
     occ_per_lead_ID = {}
-    for mx in maxes_tot:
+    for mx in rank_list:
         if f"{mx.lead_ID.values}" in occ_per_lead_ID.keys():
             occ_per_lead_ID[f"{mx.lead_ID.values}"] += batch_size
         else:
@@ -137,10 +139,12 @@ def sample_score_alloc(ds,lead_dict,maxes_tot,len_loop,batch_size,len_alloc,allo
     to_analyze = maxes_tot[0]
     # loop over number of rounds
     for i in range(len_loop):
+        print(f"round = {i}")
         # sample events from pool of non-chosen events, combine and sort all sampled events (from previous rounds)
         maxes_tot = lead_ID_sample(ds,lead_dict,mem_sample=maxes_tot[1])
         combed = xr.combine_nested([to_analyze,maxes_tot[0]],concat_dim="event")
         to_analyze = combed.sortby(combed,ascending=False)
+        print(to_analyze)
         #scoring
         scores[i] = score_sum(to_analyze)
         # what lead times were allocated
@@ -148,6 +152,7 @@ def sample_score_alloc(ds,lead_dict,maxes_tot,len_loop,batch_size,len_alloc,allo
         #allocation for next round
         if i < len_loop - 1:
             lead_dict = find_alloc(alloc_type,ds.lead_ID,to_analyze,len_alloc,batch_size)
+            print(lead_dict)
     return scores, lead_dicts
 
 def score_algo(ds,len_loop,batch_size,batch_start_size,len_alloc,bootstrap):
@@ -157,13 +162,16 @@ def score_algo(ds,len_loop,batch_size,batch_start_size,len_alloc,bootstrap):
     lead_list = [f"{ld}" for ld in ds.lead_ID.values] #list of of all lead IDs for dataset
     for bt in tqdm(range(bootstrap)):
         # screening phase (similar for all three allocation algorithms)
+        print("screening")
         results_screening = screening(ds,batch_start_size)
         scores_screening = score_sum(results_screening[0])
         # find scores and chosen leads for different allocation types
         alloc_types = ["Random","Static","Weighted"]
         score_info = []
         for alloc in alloc_types:
-            lead_dict= find_alloc(alloc,ds.lead_ID,results_screening[0],len_alloc,batch_size)
+            print(alloc)
+            lead_dict= find_alloc(alloc,ds.lead_ID,results_screening[0].sortby(results_screening[0],ascending=False),len_alloc,batch_size)
+            print(lead_dict)
             score, lead_ID_all_rounds =  sample_score_alloc(ds,
                                                            lead_dict,
                                                            results_screening,
