@@ -28,7 +28,7 @@ print(f"{area}, Scoring number of heatwave days = {nb_heatw_day}, Maximum temper
 n_alloc = [1,2,4,6,8,10,15,20,25,30]
 n_batch = [1,2,4,6,8,10,15,20,25,30]
 n_start_batch = [1,2,4,6,8,10,15,20,25,30]
-len_loop = 1
+len_loop = 2
 bootstrap = 100
 
 # Paths
@@ -39,7 +39,7 @@ in_path = '/net/xenon/climphys/lbloin/optim_boost/'
 print("Reading in necessary files")
 # Read in climatology data
 clim = xr.open_dataset(in_path + f"TREFHTMX_{area}_2005-2035.nc").TREFHTMX
-mn = clim.groupby("time.dayofyear").mean().rolling(dayofyear=20,center=True).mean()
+mn = clim.groupby("time.dayofyear").mean().rolling(dayofyear=20,center=True).mean().mean("member")
 # read in boosted data
 files = glob.glob(in_path+f"TREFHTMX_{area}_boosted_*.nc")
 cases = [file[-16:-3] for file in files]
