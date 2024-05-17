@@ -34,27 +34,48 @@ def lead_ID_sample(ds,lead_dict,mem_sample=False):
         batch = rng.choice(sample, size=batch_size,replace=False)
         # only keep maximum values over time
         maxes_batch = ds.sel(lead_ID=eval(lead_ID),member=batch)
-        print(maxes_batch.values)
-        maxes.append(maxes_batch)   
+        maxes_da = xr.DataArray(maxes_batch.values, dims="value").pad(value=(0,len(sample)-len(batch)))
+        maxes.append(maxes_da)   
         # non-sampled members
         non_chosen[lead_ID] = list(set(sample) - set(batch))
-    maxes_tot = xr.concat(maxes,dim="lead_ID").stack(event=ds.dims).dropna(dim="event")
+    maxes_tot = xr.concat(maxes,dim="lead_ID")
+    maxes_tot["lead_ID"] = list(lead_dict.keys())
     # find top runs within all the sampled members (across lead times -> batch_size*len(lead_time))
-    return maxes_tot, non_chosen
+    return maxes_tot.stack(event=("lead_ID","value")).dropna(dim="event"), non_chosen
+
+def lead_ID_sample_replace(ds,lead_dict):
+    """samples events from a dataset ds. Batch size is determined for each lead time in the dict lead_dict. mem_sample is optionally included if you want another set to draw from than just the members of the ds. Returns the highest members (length =len_top), and a dict of events that weren't chosen"""
+    maxes = [] #list of sampled datasets for each lead time
+    non_chosen = {} #dict of non-sampled members (per lead time)
+    for lead_ID in lead_dict:
+        sample = ds.sel(lead_ID=eval(lead_ID)).member.values
+        #choose batch size
+        batch_size = lead_dict[lead_ID]
+        if batch_size > len(sample):
+            batch_size = len(sample)
+        #draw batch from sample of size batch_size
+        batch = rng.choice(sample, size=batch_size,replace=False)
+        # only keep maximum values over time
+        maxes_batch = ds.sel(lead_ID=eval(lead_ID),member=batch)
+        maxes_da = xr.DataArray(maxes_batch.values, dims="value").pad(value=(0,len(sample)-len(batch)))
+        maxes.append(maxes_da)   
+        non_chosen[lead_ID] = sample
+    maxes_tot = xr.concat(maxes,dim="lead_ID")
+    maxes_tot["lead_ID"] = list(lead_dict.keys())
+    return maxes_tot.stack(event=("lead_ID","value")).dropna(dim="event"), non_chosen
 
 def score_max(maxes_tot):
     """TODO: write this"""
-    return maxes_tot.max().values
+    return maxes_tot.max()
 
-def score_sum(maxes_tot,top=10):
+def score_mean(maxes_tot,top=10):
     """TODO: write this"""
-    top_scores = maxes_tot.sortby(maxes_tot,ascending = False)[0:top]
-    return top_scores.sum().values
+    top_scores = maxes_tot[0:top]
+    return top_scores.mean()
 
 def find_alloc_static(maxes_tot,len_alloc,batch_size):
     """allocates amount of new samples to draw for each lead time, by giving batch_size number of new samples for each event in that lead time that was in the top selection"""
     rank_list = maxes_tot[0:len_alloc] #top events
-    print(rank_list)
     occ_per_lead_ID = {}
     for mx in rank_list:
         if f"{mx.lead_ID.values}" in occ_per_lead_ID.keys():
@@ -124,61 +145,62 @@ def find_alloc(alloc_type,lead_IDs,to_analyze,len_alloc,batch_size):
         print("input valid score type")
     return lead_dict
 
-def screening(ds,batch_size_start):
+def screening(ds,batch_size_start,replace=False):
     lead_dict = {}
     for lead in ds.lead_ID:
         lead_dict[f"{lead.values}"] = batch_size_start
     # sample events
-    maxes_tot = lead_ID_sample(ds,lead_dict)
+    if replace == True:
+        maxes_tot = lead_ID_sample_replace(ds,lead_dict)
+    else:
+        maxes_tot = lead_ID_sample(ds,lead_dict)
     return maxes_tot
 
-def sample_score_alloc(ds,lead_dict,maxes_tot,len_loop,batch_size,len_alloc,alloc_type="Random"):
+def sample_score_alloc(ds,lead_dict,maxes_tot,len_loop,batch_size,len_alloc,alloc_type="Random",replace=False):
     """takes a dataset ds and performs sampling, scoring and allocation for len_loop rounds"""
     scores = np.zeros(len_loop)
     lead_dicts = []
     to_analyze = maxes_tot[0]
     # loop over number of rounds
     for i in range(len_loop):
-        print(f"round = {i}")
         # sample events from pool of non-chosen events, combine and sort all sampled events (from previous rounds)
-        maxes_tot = lead_ID_sample(ds,lead_dict,mem_sample=maxes_tot[1])
+        if replace == True:
+            maxes_tot = lead_ID_sample_replace(ds,lead_dict)
+        else:
+            maxes_tot = lead_ID_sample(ds,lead_dict,mem_sample=maxes_tot[1])
         combed = xr.combine_nested([to_analyze,maxes_tot[0]],concat_dim="event")
         to_analyze = combed.sortby(combed,ascending=False)
-        print(to_analyze)
         #scoring
-        scores[i] = score_sum(to_analyze)
+        scores[i] = score_mean(to_analyze)
         # what lead times were allocated
         lead_dicts.append(lead_dict)
         #allocation for next round
         if i < len_loop - 1:
             lead_dict = find_alloc(alloc_type,ds.lead_ID,to_analyze,len_alloc,batch_size)
-            print(lead_dict)
     return scores, lead_dicts
 
-def score_algo(ds,len_loop,batch_size,batch_start_size,len_alloc,bootstrap):
+def score_algo(ds,len_loop,batch_size,batch_start_size,len_alloc,bootstrap,replace = False):
     """Perform scoring algo for dataset ds, scoring according to its ground truth, and performing a bootstrap for the result"""
     # run a sampling, scoring and allocating loop, nb of times = bootstrap
     score_info_boot = []
     lead_list = [f"{ld}" for ld in ds.lead_ID.values] #list of of all lead IDs for dataset
     for bt in tqdm(range(bootstrap)):
         # screening phase (similar for all three allocation algorithms)
-        print("screening")
-        results_screening = screening(ds,batch_start_size)
-        scores_screening = score_sum(results_screening[0])
+        results_screening = screening(ds,batch_start_size,replace=replace)
+        scores_screening = score_mean(results_screening[0])
         # find scores and chosen leads for different allocation types
         alloc_types = ["Random","Static","Weighted"]
         score_info = []
         for alloc in alloc_types:
-            print(alloc)
             lead_dict= find_alloc(alloc,ds.lead_ID,results_screening[0].sortby(results_screening[0],ascending=False),len_alloc,batch_size)
-            print(lead_dict)
             score, lead_ID_all_rounds =  sample_score_alloc(ds,
                                                            lead_dict,
                                                            results_screening,
                                                            len_loop,
                                                            batch_size,
                                                            len_alloc,
-                                                           alloc_type=alloc)
+                                                           alloc_type=alloc,
+                                                           replace=replace)
             # information on which lead times were chosen
             lead_data = np.zeros((len(lead_ID_all_rounds), len(lead_list)))
             for i,round in enumerate(lead_ID_all_rounds):
@@ -202,7 +224,7 @@ def score_algo(ds,len_loop,batch_size,batch_start_size,len_alloc,bootstrap):
     score_info = xr.concat(score_info_boot,dim="bootstrap")
     return score_info
 
-def score_diff_config(ds,n_alloc,n_batch,n_batch_start,len_loop,bootstrap,area,score_typ="temp_max"):
+def score_diff_config(ds,n_alloc,n_batch,n_batch_start,len_loop,bootstrap,area,score_typ="temp_max",replace=False):
     """takes ds_boost containging different cases, and runs the scoring algo for a range of different configurations. n_top, n_alloc, and len_top are lists of the numbers wanted to loop over.Saves the output in csv files."""
     score_info_batch_start = [] 
     # varying batch size for screening phase
@@ -223,10 +245,11 @@ def score_diff_config(ds,n_alloc,n_batch,n_batch_start,len_loop,bootstrap,area,s
                                    batch_start_size,     
                                    len_alloc,
                                    bootstrap,
+                                   replace = replace
                                    )
                 scores_batch.append(score_info)
             score_info_len_alloc.append(ut.concat_to_ds(scores_batch,"batch_size",n_batch))
         score_info_batch_start.append(ut.concat_to_ds(score_info_len_alloc,"allocation_size",n_alloc))
     score_info = ut.concat_to_ds(score_info_batch_start,"start_batch_size",n_batch_start)
-    score_info.to_netcdf(f"../outputs/score_info/score_info_{area}_{score_typ}.nc")
+    score_info.to_netcdf(f"../outputs/score_info/score_info_{area}_{score_typ}_replace{replace}.nc")
     return None
