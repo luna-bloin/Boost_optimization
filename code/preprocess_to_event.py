@@ -20,7 +20,7 @@ import pandas as pd
 # Configurations
 try: 
     area = sys.argv[1] 
-    roll = sys.argv[2] 
+    roll = eval(sys.argv[2]) 
     with_lead_ID = eval(sys.argv[3])
     nb_heatw_day = eval(sys.argv[4])
     temp_max = eval(sys.argv[5])
