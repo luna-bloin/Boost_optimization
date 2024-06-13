@@ -4,6 +4,7 @@ channels:
   - defaults
 dependencies:
   - xarray
+  - netcdf4
   - numpy
   - python
   - tqdm
