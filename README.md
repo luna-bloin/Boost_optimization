@@ -9,3 +9,6 @@ To use it, it is necessary to upload a .nc file to the folder "inputs" containin
 
 ## Example case using jupyter notebook
 An example case is provided in notebooks/run_alloc_algo.ipynb 
+It can be run interactively by clicking on the button below
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/luna-bloin/Boost_optimization/HEAD)
+
