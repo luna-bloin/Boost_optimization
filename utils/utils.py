@@ -16,6 +16,25 @@ def read_area(area):
             rows.append(row)
     areas= [ int(rows[1][0]), int(rows[1][1]),int(rows[1][2]), int(rows[1][3]) ]
     return areas
+    
+def read_boost(area):
+    """returns a list of min_lat,max_lat,min_lon,max_lon needed to crop the corresponding area"""
+    pth = glob.glob(f"../inputs/boost/boost_{area}.csv")
+    if pth == []:
+        print("no files found")
+        return None
+    with open(pth[0],"r") as f:
+        rd = csv.reader(f,delimiter=";")
+        rows = []
+        for row in rd:
+            rows.append(row)
+    boost = {}
+    for i,row in enumerate(rows):
+        if i == 0: # don't read in header
+            continue
+        case = rows[i][0]
+        boost[case] = [eval(rows[i][1]), eval(rows[i][2])]
+    return boost
 
 def read_regionmask(area):
     pth = glob.glob(f"../inputs/areas/{area}.csv")

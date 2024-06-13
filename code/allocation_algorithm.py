@@ -7,14 +7,16 @@ import xarray as xr
 # Configurations
 try: 
     file_to_open = sys.argv[1]
-    n_alloc = eval(sys.argv[2])
+    n_top = eval(sys.argv[2])
     n_batch = eval(sys.argv[3])
+    alloc_type = sys.argv[4]
 except IndexError:
-    file_to_open = '/net/xenon/climphys/lbloin/optim_boost/boosted_CH_temp_max.nc'
-    n_alloc = 10
+    file_to_open = '/net/xenon/climphys/lbloin/optim_boost/boosted_CH_temp_max_lead_ID_True.nc'
+    n_top = 10
     n_batch = 10
+    alloc_type = "Weighted"
 
-print(f"opening {file_to_open}, allocation length = {n_alloc}, batch size = {n_batch}")
+print(f"opening {file_to_open}, allocation length = {n_top}, batch size = {n_batch}")
 
 # === READING IN BOOSTED FILES ===
 print("Reading in boosted data files")
@@ -24,9 +26,12 @@ screening_data_sorted = screening_data.sortby("TREFHTMX",ascending=False).TREFHT
 
 # === Run allocation algorithm ===
 print("Allocation algorithm")
-# find score from screening phase
-scores_screening = ac.score_mean(screening_data_sorted)
 # find allocation given screening input
-lead_ID_dict = ac.find_alloc_weighted(screening_data_sorted,n_alloc,n_batch)
+lead_ID_dict = ac.find_alloc(alloc_type,
+                             screening_data.lead_ID,
+                             screening_data_sorted,
+                             n_top,
+                             n_batch
+                            )
 print(lead_ID_dict)
     

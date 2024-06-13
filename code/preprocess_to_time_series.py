@@ -3,11 +3,17 @@ import sys
 sys.path.append("../utils")
 import preproc as pc
 
-#source location
+# === Script explanation ===
+# If unpert = True, takes all Large Ensemble CESM2 runs (2005-2035) and outputs it as a temperature time series. Either averaged over selected area or outputted globally. 
+# If boost = True, it preprocesses all relevant boosted runs in the same way (boosted runs are location-specific, the relevant runs are provided in input file 
+# ==========================
+
+
+#source location: where the climate model data is
 in_path = "/net/meso/climphys/cesm212/" 
-# processed data
+# where to stor processed data
 output_path = '/net/xenon/climphys/lbloin/optim_boost/'
-# boost data
+# location of boosted climate model data
 boost_path = "/net/meso/climphys/cesm212/boosting/archive/"
 
 # configurations
