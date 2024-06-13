@@ -19,13 +19,11 @@ except IndexError:
 print(f"opening {file_to_open}, allocation length = {n_top}, batch size = {n_batch}")
 
 # === READING IN BOOSTED FILES ===
-print("Reading in boosted data files")
 # Read in boosted data from the screening/previous allocation rounds and stack along case/lead time to get one ID
 screening_data = xr.open_dataset(file_to_open).stack(for_sorting=("member","lead_ID")).dropna(dim="for_sorting")
-screening_data_sorted = screening_data.sortby("TREFHTMX",ascending=False).TREFHTMX
+screening_data_sorted = screening_data.sortby("score",ascending=False).score
 
 # === Run allocation algorithm ===
-print("Allocation algorithm")
 # find allocation given screening input
 lead_ID_dict = ac.find_alloc(alloc_type,
                              screening_data.lead_ID,

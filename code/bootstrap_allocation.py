@@ -30,7 +30,7 @@ ds = xr.open_dataset(f"{in_path}boosted_{to_open}.nc")
 
 # === Run allocation algorithm for all scores chosen (with bootstrap) ===
 print("Allocation algorithm")
-ba.score_diff_config(ds.TREFHTMX, 
+ba.score_diff_config(ds.score, 
                      n_top, 
                      n_batch,
                      n_start_batch,

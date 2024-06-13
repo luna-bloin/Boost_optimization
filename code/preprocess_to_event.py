@@ -84,4 +84,5 @@ for around_peak in [True,False]:
 
 print("Saving as netcdf")
 for score in to_score:
-    to_score[score].to_netcdf(f"{in_path}boosted_{area}_{score}_lead_ID_{with_lead_ID}_roll{roll}.nc")
+    print(f"saving {score}")
+    to_score[score].to_dataset(name="score").to_netcdf(f"{in_path}boosted_{area}_{score}_lead_ID_{with_lead_ID}_roll{roll}.nc")
