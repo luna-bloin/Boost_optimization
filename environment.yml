@@ -1,0 +1,15 @@
+name: boost_optim
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - xarray
+  - numpy
+  - python
+  - tqdm
+  - glob
+  - pandas
+  - csv
+  - datetime
+  - dask
+  - regionmask
