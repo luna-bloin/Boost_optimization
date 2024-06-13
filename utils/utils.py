@@ -16,6 +16,25 @@ def read_area(area):
             rows.append(row)
     areas= [ int(rows[1][0]), int(rows[1][1]),int(rows[1][2]), int(rows[1][3]) ]
     return areas
+    
+def read_boost(area):
+    """returns a list of min_lat,max_lat,min_lon,max_lon needed to crop the corresponding area"""
+    pth = glob.glob(f"../inputs/boost/boost_{area}.csv")
+    if pth == []:
+        print("no files found")
+        return None
+    with open(pth[0],"r") as f:
+        rd = csv.reader(f,delimiter=";")
+        rows = []
+        for row in rd:
+            rows.append(row)
+    boost = {}
+    for i,row in enumerate(rows):
+        if i == 0: # don't read in header
+            continue
+        case = rows[i][0]
+        boost[case] = [eval(rows[i][1]), eval(rows[i][2])]
+    return boost
 
 def read_regionmask(area):
     pth = glob.glob(f"../inputs/areas/{area}.csv")
@@ -39,3 +58,12 @@ def concat_to_ds(list,dim,typ_name):
     ds = xr.concat(list,dim=dim)
     ds[dim] = typ_name
     return ds
+
+def multi_to_single_index(ds,dims=("case","lead_time"),new_name="lead_ID"):
+    stacked = ds.stack(event=dims)
+    coords = [str(st) for st in stacked["event"].values]
+    stacked = stacked.reset_index("event")
+    stacked["event"] = coords
+    stacked = stacked.drop_vars(dims)
+    stacked = stacked.rename({"event":new_name})
+    return stacked
