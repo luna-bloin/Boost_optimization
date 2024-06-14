@@ -61,6 +61,8 @@ for around_peak in [True,False]:
         ds = xr.open_dataset(file).convert_calendar("proleptic_gregorian").rolling(time=roll, center=True).mean()
         ds["start_date"] = [(pd.to_datetime(ld)-peak).days for ld in ds.start_date.values]
         ds = ds.rename({"start_date":"lead_time"})
+        # restrict lead_time
+        ds = ds.sel(lead_time=slice(-20,-10))
         if around_peak == True:
             ds = ds.sel(time = slice(peak - pd.Timedelta(days = 5), peak + pd.Timedelta(days = 5)))# keep only values around peak
         boost.append(ds)
