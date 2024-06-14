@@ -89,7 +89,7 @@ def screening(ds,n_batch_start,replace=False):
         sampled = lead_ID_sample_replace(ds,lead_dict)
     else:
         sampled = lead_ID_sample(ds,lead_dict)
-    return sampled
+    return sampled,lead_dict
 
 
 def sample_score_alloc(ds,lead_dict,sampled,n_top,n_batch,len_loop,alloc_type="Random",replace=False):
@@ -116,7 +116,7 @@ def sample_score_alloc(ds,lead_dict,sampled,n_top,n_batch,len_loop,alloc_type="R
         combed = xr.combine_nested([to_analyze,sampled[0]],concat_dim="event")
         to_analyze = combed.sortby(combed,ascending=False)
         #scoring
-        scores.append(to_analyze.values)
+        scores.append(sampled[0].values)
         # what lead times were allocated
         lead_dicts.append(lead_dict)
         #allocation for next round
@@ -139,15 +139,15 @@ def score_algo(ds,n_top,n_batch,n_batch_start,len_loop,bootstrap,replace = False
     lead_list = [f"{ld}" for ld in ds.lead_ID.values] #list of of all lead IDs for dataset
     for bt in tqdm(range(bootstrap)):
         # screening phase (similar for all three allocation algorithms)
-        results_screening = screening(ds,n_batch_start,replace=replace)
-        # calculate score
+        results_screening, lead_dict_screening = screening(ds,n_batch_start,replace=replace)
+        # calculate scores
         scores_screening = results_screening[0].values
         # find scores and chosen leads for different allocation types
         alloc_types = ["Static","Weighted"]
         score_info = []
         for alloc in alloc_types:
             lead_dict= ac.find_alloc(alloc,ds.lead_ID,results_screening[0].sortby(results_screening[0],ascending=False),n_top,n_batch)
-            score, lead_ID_all_rounds =  sample_score_alloc(ds,
+            scores, lead_ID_all_rounds =  sample_score_alloc(ds,
                                                            lead_dict,
                                                            results_screening,
                                                            n_top,
@@ -155,6 +155,9 @@ def score_algo(ds,n_top,n_batch,n_batch_start,len_loop,bootstrap,replace = False
                                                            len_loop,
                                                            alloc_type=alloc,
                                                            replace=replace)
+            #add screening scores to the beginning of list of scores per round
+            scores.insert(0,scores_screening)
+            lead_ID_all_rounds.insert(0,lead_dict_screening)
             # information on which lead times were chosen
             lead_data = np.zeros((len(lead_ID_all_rounds), len(lead_list)))
             for i,round in enumerate(lead_ID_all_rounds):
@@ -162,8 +165,8 @@ def score_algo(ds,n_top,n_batch,n_batch_start,len_loop,bootstrap,replace = False
                     j = lead_list.index(lead_ID)
                     lead_data[i,j] = round[lead_ID]
             #make sure all arrays have same length
-            to_pad = np.max([len(sc) for sc in score])
-            padded_score = [np.pad(arr, (0, to_pad - len(arr)), constant_values=np.nan) for arr in score]
+            to_pad = np.max([len(sc) for sc in scores])
+            padded_score = [np.pad(arr, (0, to_pad - len(arr)), constant_values=np.nan) for arr in scores]
             # store all info in dataset
             score_info.append(xr.Dataset(
                 {
@@ -171,7 +174,7 @@ def score_algo(ds,n_top,n_batch,n_batch_start,len_loop,bootstrap,replace = False
                     "score": (["round","distribution_value"], padded_score),
                 },
                 coords={
-                    "round": range(0,len(lead_ID_all_rounds)),
+                    "round": range(len(scores)),
                     "lead_ID": lead_list,
                     "distribution_value":range(to_pad)
                 },
