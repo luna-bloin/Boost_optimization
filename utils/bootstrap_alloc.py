@@ -40,6 +40,7 @@ def lead_ID_sample(ds,lead_dict,mem_sample=False):
         non_chosen[lead_ID] = list(set(available_events) - set(batch))
     for ld in lead_ID_0_size:
         del lead_dict[ld]
+    
     samples = xr.concat(samples,dim="lead_ID")
     samples["lead_ID"] = list(lead_dict.keys())
     return samples.stack(event=("lead_ID","value")).dropna(dim="event"), non_chosen
@@ -180,12 +181,11 @@ def score_algo(ds,n_top,n_batch,n_batch_start,len_loop,bootstrap,replace = False
                 },
             ))
         score_info_alloc_type = ut.concat_to_ds(score_info,"alloc_type",alloc_types)
-        score_info_alloc_type["screening_score"] = scores_screening
         score_info_boot.append(score_info_alloc_type)
     score_info = xr.concat(score_info_boot,dim="bootstrap")
     return score_info
 
-def score_diff_config(ds,n_tops,n_batchs,n_batch_starts,len_loop,bootstrap,save_info,replace=False):
+def score_diff_config(ds,n_tops,n_batchs,n_batch_starts,len_loop,bootstrap,save_info,replace=True):
     """Runs the screening + allocation algorithm for a range of parameters, in a bootstrapped way. saves results as .nc file in folder outputs. 
         :param ds: dataset that contains boosted events with dimensions lead_ID (either just lead time or stacked lead_time and case)
         :param n_tops: list of values of n_top (length of top events to use for allocation
@@ -225,5 +225,5 @@ def score_diff_config(ds,n_tops,n_batchs,n_batch_starts,len_loop,bootstrap,save_
             scores_batch.append(ut.concat_to_ds(score_info_n_top,"top_length",n_top_used))
         score_info_batch_start.append(ut.concat_to_ds(scores_batch,"batch_size",n_batchs))
     score_info = ut.concat_to_ds(score_info_batch_start,"start_batch_size",n_batch_starts)
-    score_info.to_netcdf(f"../outputs/score_info/score_info_{save_info}_replace{replace}.nc")
+    score_info.to_netcdf(f"/net/xenon/climphys/lbloin/optim_boost/score_info_{save_info}_replace{replace}.nc")
     return None
