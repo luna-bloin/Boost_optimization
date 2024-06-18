@@ -14,11 +14,11 @@ try:
     bootstrap = eval(sys.argv[6])
 except IndexError:
     to_open = 'CH_temp_max_lead_ID_True_roll3'
-    n_top = [3,5,7,10,12,15,20,25,30,50]
+    n_top = [2,5,10,12,15,20,25,30,50]
     n_batch = [5,10,20,30,50,75,100,200,300,500]
-    n_start_batch = [3,5,7,10,20,25]
+    n_start_batch = [3,5,10,20,25]
     len_loop = 2
-    bootstrap = 1000
+    bootstrap = 500
 print(f"Bootstrap sweep for {to_open}:n_top ={n_top},n_batch={n_batch},n_start_batch={n_start_batch},len_loop={len_loop},bootstrap={bootstrap}")
 
 # Paths
