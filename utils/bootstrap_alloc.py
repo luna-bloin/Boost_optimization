@@ -225,5 +225,5 @@ def score_diff_config(ds,n_tops,n_batchs,n_batch_starts,len_loop,bootstrap,save_
             scores_batch.append(ut.concat_to_ds(score_info_n_top,"top_length",n_top_used))
         score_info_batch_start.append(ut.concat_to_ds(scores_batch,"batch_size",n_batchs))
     score_info = ut.concat_to_ds(score_info_batch_start,"start_batch_size",n_batch_starts)
-    score_info.to_netcdf(f"/net/xenon/climphys/lbloin/optim_boost/score_info_{save_info}_replace{replace}.nc")
+    score_info.to_netcdf(f"/net/xenon/climphys/lbloin/optim_boost/score_info_{save_info}.nc")
     return None
